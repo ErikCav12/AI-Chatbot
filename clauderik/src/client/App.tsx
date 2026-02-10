@@ -2,6 +2,8 @@ import "./App.css";
 
 import { useState } from "react";
 
+import ReactMarkdown from "react-markdown"
+
 import genieIcon from "./assets/genie.svg";
 import lampIcon from "./assets/lamp.svg";
 
@@ -106,7 +108,7 @@ function App() {
                   className={`message message-${msg.role}`}
                   >
                     <strong>{msg.role === "user" ? "You" : "Gift Genie"}:</strong>
-                    <p>{msg.content}</p>
+                    <ReactMarkdown>{msg.content}</ReactMarkdown>
               </div>
               ))}
               </div>
