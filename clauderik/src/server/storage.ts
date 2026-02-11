@@ -10,17 +10,17 @@ export interface Conversation {
 }
 
 interface Storage {
-    createConversation(): Conversation
-    getConversation(conversationId: string): Conversation | null;
-    getConversations(): Conversation[];
-    addMessageToConversation(conversationId: string, message: Anthropic.MessageParam): Conversation | null;
+    createConversation(): Promise<Conversation>
+    getConversation(conversationId: string): Promise<Conversation | null>;
+    getConversations(): Promise<Conversation[]>;
+    addMessageToConversation(conversationId: string, message: Anthropic.MessageParam): Promise<Conversation | null>;
 
 }
 
 export class InMemoryStorage implements Storage {
     private conversations: Record<string, Conversation> = {};
 
-    createConversation(): Conversation {
+    async createConversation(): Promise<Conversation> {
         const id = crypto.randomUUID();
 
         const conversation: Conversation = {
@@ -35,17 +35,17 @@ export class InMemoryStorage implements Storage {
         return conversation
     }
 
-    getConversation(conversationId: string): Conversation | null {
+    async getConversation(conversationId: string): Promise<Conversation | null> {
         const conversation = this.conversations[conversationId];
         
         return conversation ?? null // nullish operator returns left if not undefined then null is undefined
     }
 
-    getConversations(): Conversation[] {
+    async getConversations(): Promise<Conversation[]> {
         return Object.values(this.conversations);
     }
 
-    addMessageToConversation(conversationId: string, message: Anthropic.MessageParam): Conversation | null {
+    async addMessageToConversation(conversationId: string, message: Anthropic.MessageParam): Promise<Conversation | null> {
         const conversation = this.conversations[conversationId];
         if (!conversation) return null;
 

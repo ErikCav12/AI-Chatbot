@@ -2,24 +2,24 @@ import express from "express";
 import ViteExpress from "vite-express";                                                        
 import Anthropic from "@anthropic-ai/sdk";                                                                                                                              
 import "dotenv/config";                                                                                                                                                 
-import { InMemoryStorage } from "./storage.js";                                                                                                                            
+import { SqliteStorage } from "./sqliteStorage.js";                                                                                                                            
 
 const app = express();
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env automatically
-const storage = new InMemoryStorage(); // stores all conversations in memory (replaces the old global messageHistory)
+const storage = new SqliteStorage(); // stores conversations in a SQLite database file for persistence across restarts
 
 app.use(express.json());
 
 // Create a new conversation — called when the user starts a fresh chat
-app.post("/conversations", (req, res) => {
-  const convo = storage.createConversation();
+app.post("/conversations", async (req, res) => {
+  const convo = await storage.createConversation();
   // only return metadata, not the full messages array
   res.json({ id: convo.id, title: convo.title, createdAt: convo.createdAt });
 });
 
 // List all conversations — used to populate the sidebar drawer
-app.get("/conversations", (req, res) => {
-  const convos = storage.getConversations();
+app.get("/conversations", async (req, res) => {
+  const convos = await storage.getConversations();
   // strip out messages to keep the response lightweight
   res.json(convos.map(c => ({ id: c.id, title: c.title, createdAt: c.createdAt })));
 });
@@ -28,7 +28,7 @@ app.get("/conversations", (req, res) => {
 app.post("/conversations/:id/chat", async (req, res) => {
   try {
     // look up the conversation by ID from the URL parameter
-    const conversation = storage.getConversation(req.params.id);
+    const conversation = await storage.getConversation(req.params.id);
     if (!conversation) {
       return res.status(404).json({ error: "Conversation not found" });
     }
@@ -41,7 +41,7 @@ app.post("/conversations/:id/chat", async (req, res) => {
 
     // save the user's message to the conversation history
     // this also handles auto-titling and the MAX_MESSAGES cap internally
-    storage.addMessageToConversation(req.params.id, { role: "user", content: userMessage });
+    await storage.addMessageToConversation(req.params.id, { role: "user", content: userMessage });
 
     // set up Server-Sent Events (SSE) so we can stream tokens back as they arrive
     res.setHeader("Content-Type", "text/event-stream");
@@ -77,9 +77,9 @@ app.post("/conversations/:id/chat", async (req, res) => {
     });
 
     // fired when the full response is complete
-    stream.on("message", (message) => {
+    stream.on("message", async (message) => {
       // save the complete assistant response to the conversation history
-      storage.addMessageToConversation(req.params.id, { role: "assistant", content: fullText });
+      await storage.addMessageToConversation(req.params.id, { role: "assistant", content: fullText });
 
       // send token usage stats and a "done" signal to the client
       const usage = {
@@ -100,8 +100,8 @@ app.post("/conversations/:id/chat", async (req, res) => {
 });
 
 // Reset a specific conversation — clears all messages but keeps the conversation
-app.post("/conversations/:id/reset", (req, res) => {
-  const conversation = storage.getConversation(req.params.id);
+app.post("/conversations/:id/reset", async (req, res) => {
+  const conversation = await storage.getConversation(req.params.id);
   if (!conversation) {
     return res.status(404).json({ error: "Conversation not found" });
   }
