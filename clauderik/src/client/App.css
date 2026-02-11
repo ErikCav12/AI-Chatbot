@@ -67,6 +67,37 @@ body {
   opacity: 0.9;
 }
 
+/* Typing cursor */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.typing-cursor::after {
+  content: "▊";
+  color: #d4a344;
+  animation: blink 0.8s step-end infinite;
+  margin-left: 2px;
+}
+
+/* Typing indicator dots */
+@keyframes bounce {
+  0%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-6px); }
+}
+
+.typing-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: #d4a344;
+  animation: bounce 1.4s infinite ease-in-out;
+}
+
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
 /* Markdown output styling */
 .prose p {
   margin-bottom: 0.25em;
