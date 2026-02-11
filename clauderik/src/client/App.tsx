@@ -7,6 +7,10 @@ import ReactMarkdown from "react-markdown";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
+import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
+import { Separator } from "@/components/ui/separator";
+import { Menu } from "lucide-react";
+
 
 import genieIcon from "./assets/genie.svg";
 import lampIcon from "./assets/lamp.svg";
@@ -30,6 +34,9 @@ function App() {
   const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
   const readerRef = useRef<ReadableStreamDefaultReader | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null); // tracks which conversation is currently active
+  const [conversationList, setConversationList] = useState<{id: string, title: string, createdAt: number}[]>([]);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // auto-scroll to top when conversation updates (newest is first due to reverse)
   useEffect(() => {
@@ -38,12 +45,49 @@ function App() {
     }
   }, [conversation]);
 
+
+  // load the conversation list when the app first opens
+  useEffect(() => {
+    fetchConversations();
+  }, []);
+  
+
   function cancelStream() {
     if (readerRef.current) {
       readerRef.current.cancel();
       readerRef.current = null;
     }
     setIsLoading(false);
+  }
+  // fetch all conversations from the server to populate the sidebar
+  async function fetchConversations() {
+    const res = await fetch("/conversations");
+    const data = await res.json();
+    setConversationList(data)
+  }
+
+  // create a fresh conversation and make it the active one
+  async function createNewConversation() {
+    const res = await fetch("/conversations", { method: "POST" });
+    const data = await res.json();
+    setConversationId(data.id);
+    setConversation([]);
+    setInput("");
+    setTokenUsage(null);
+    setDrawerOpen(false);
+    // refresh the sidebar to show the new conversation
+    await fetchConversations();
+  }
+
+  // switch to an existing conversation
+  async function selectConversation(id: string) {
+    setConversationId(id);
+    setDrawerOpen(false);
+    // clear local messages, server will persist memory
+    // claude will continue to ahve context on the next message
+    setConversation([]);
+    setTokenUsage(null);
+
   }
 
   async function retryLastMessage() {
@@ -66,9 +110,10 @@ function App() {
     await streamResponse(lastUserMsg.content);
   }
 
-  async function streamResponse(message: string) {
+  async function streamResponse(message: string, overrideId?: string) {
     try {
-      const res = await fetch("/chat", {
+      const chatId = overrideId || conversationId;
+      const res = await fetch(`/conversations/${chatId}/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message }),
@@ -169,13 +214,24 @@ function App() {
     setInput("");
     setIsLoading(true);
 
+    // if no active converation, create one first
+    let activeId = conversationId;
+    if (!activeId) {
+      const res = await fetch("/conversations", { method: "POST" })
+      const data = await res.json();
+      activeId = data.id;
+      setConversationId(activeId)
+    }
+
     setConversation((prev) => [
       ...prev,
       { role: "user", content: currentInput },
       { role: "assistant", content: "" },
-    ]);
+    ])
 
-    await streamResponse(currentInput);
+    await streamResponse(currentInput, activeId!);
+    // refresh sidebar to pick up the auto-generated title
+    fetchConversations();
   }
 
   async function handleSubmit(e: React.FormEvent): Promise<void> {
@@ -185,7 +241,8 @@ function App() {
   }
 
   async function resetConversation() {
-    await fetch("/reset", { method: "POST" });
+    if (!conversationId) return;
+    await fetch(`/conversations/${conversationId}/reset`, { method: "POST" })
     setConversation([]);
     setInput("");
     setTokenUsage(null);
@@ -199,24 +256,62 @@ function App() {
   return (
     <div className="mx-auto max-w-[800px] min-h-screen flex flex-col px-6 py-6">
       {/* Header */}
-      <header className="text-center animate-fade-in-down">
-        <div className="flex items-center justify-center gap-4">
-          <img
-            src={genieIcon}
-            alt="Genie"
-            className="w-[60px] h-[60px] drop-shadow-[0_0_8px_#d4a344]"
-          />
-          <h1 className="text-[clamp(2rem,5vw,2.5rem)] font-extrabold tracking-tight">
-            Gift Genie
-          </h1>
-        </div>
-        {/* Token usage display */}
-        {tokenUsage && (
-          <p className="text-xs text-white/30 mt-2">
-            Tokens: {tokenUsage.input_tokens} in / {tokenUsage.output_tokens} out / {tokenUsage.total} total
-          </p>
-        )}
+          <header className="text-center animate-fade-in-down">                                                                                                                   
+            <div className="flex items-center justify-center gap-4 relative">                                                                                                     
+              {/* Menu button to open the sidebar drawer */}                                                                                                                      
+              <Drawer direction="left" open={drawerOpen} onOpenChange={setDrawerOpen}>
+                <DrawerTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="absolute left-0 cursor-pointer"
+                  >
+                    <Menu className="w-6 h-6" />
+                  </Button>
+                </DrawerTrigger>
+                <DrawerContent className="h-full w-[300px] rounded-none">
+                  <DrawerHeader>
+                    <DrawerTitle>Conversations</DrawerTitle>
+                  </DrawerHeader>
+                  <div className="p-4 flex flex-col gap-2">
+                    {/* New conversation button */}
+                    <Button onClick={createNewConversation} className="w-full cursor-pointer">
+                      New Conversation
+                    </Button>
+                    <Separator className="my-2" />
+                    {/* List of existing conversations */}
+                    <div className="flex flex-col gap-1 overflow-y-auto">
+                      {conversationList.map((convo) => (
+                        <Button
+                          key={convo.id}
+                          variant={convo.id === conversationId ? "secondary" : "ghost"}
+                          className="justify-start text-left text-sm truncate cursor-pointer"
+                          onClick={() => selectConversation(convo.id)}
+                        >
+                          {convo.title}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </DrawerContent>
+              </Drawer>
+
+              <img
+                src={genieIcon}
+                alt="Genie"
+                className="w-[60px] h-[60px] drop-shadow-[0_0_8px_#d4a344]"
+              />
+              <h1 className="text-[clamp(2rem,5vw,2.5rem)] font-extrabold tracking-tight">
+                Gift Genie
+              </h1>
+            </div>
+            {tokenUsage && (
+              <p className="text-xs text-white/30 mt-2">
+                Tokens: {tokenUsage.input_tokens} in / {tokenUsage.output_tokens} out / {tokenUsage.total} total
+              </p>
+            )}
       </header>
+
 
       {/* Main content */}
       <main className="flex-1">

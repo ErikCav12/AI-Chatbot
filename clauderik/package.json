@@ -23,6 +23,7 @@
     "tailwindcss": "^4.1.18",
     "tsx": "^4.19.3",
     "typescript": "^5.8.3",
+    "vaul": "^1.1.2",
     "vite-express": "*"
   },
   "devDependencies": {
