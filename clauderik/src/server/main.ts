@@ -2,11 +2,11 @@ import express from "express";
 import ViteExpress from "vite-express";                                                        
 import Anthropic from "@anthropic-ai/sdk";                                                                                                                              
 import "dotenv/config";                                                                                                                                                 
-import { SqliteStorage } from "./sqliteStorage.js";                                                                                                                            
+import { SupabaseStorage } from "./supabaseStorage.js";                                                                                                                            
 
 const app = express();
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env automatically
-const storage = new SqliteStorage(); // stores conversations in a SQLite database file for persistence across restarts
+const storage = new SupabaseStorage(); // stores conversations in Supabase cloud PostgreSQL for persistence
 
 app.use(express.json());
 
@@ -22,6 +22,15 @@ app.get("/conversations", async (req, res) => {
   const convos = await storage.getConversations();
   // strip out messages to keep the response lightweight
   res.json(convos.map(c => ({ id: c.id, title: c.title, createdAt: c.createdAt })));
+});
+
+// Get a single conversation with its full message history
+app.get("/conversations/:id", async (req, res) => {
+  const conversation = await storage.getConversation(req.params.id);
+  if (!conversation) {
+    return res.status(404).json({ error: "Conversation not found" });
+  }
+  res.json(conversation);
 });
 
 // Send a message within a specific conversation and stream the AI response back
@@ -43,6 +52,10 @@ app.post("/conversations/:id/chat", async (req, res) => {
     // this also handles auto-titling and the MAX_MESSAGES cap internally
     await storage.addMessageToConversation(req.params.id, { role: "user", content: userMessage });
 
+    // re-fetch the conversation so we have the full history INCLUDING the message we just added
+    // (the original `conversation` object was fetched before the insert)
+    const updatedConversation = await storage.getConversation(req.params.id);
+
     // set up Server-Sent Events (SSE) so we can stream tokens back as they arrive
     res.setHeader("Content-Type", "text/event-stream");
     res.setHeader("Cache-Control", "no-cache");
@@ -54,7 +67,7 @@ app.post("/conversations/:id/chat", async (req, res) => {
       model: "claude-haiku-4-5-20251001",
       max_tokens: 1024,
       system: "You are a helpful genie, based on the slightly cheeky genie from Aladdin who always responds kindly and with understated enthusiasm. Your overall job is to get the perfect present to match the target receiver. You start by clarifying the users constraints (i.e. money) as well as the occasion. Then move onto understanding who the target person is and their likes. This includes a game of this or that to help narrow down the gift idea, an example would be a practical gift or heartfelt. You always look to lighten the cognitive load on the user so that they make micro-decisions rather than just dumping loads of text in the chatbot. You should always respond concisely, focus on the task of finding the right gift. Whenever you suggest a gift, ask the user for a rating out of 10 so that can help guide you in the right direction. You can suggest up to 3 gifts at any one time when you feel that you have sufficiently narrowed it down. Your job is to point the user to the right link to their present",
-      messages: conversation.messages,
+      messages: updatedConversation!.messages,
     });
 
     // accumulate the full response so we can save it to history when done
@@ -78,8 +91,14 @@ app.post("/conversations/:id/chat", async (req, res) => {
 
     // fired when the full response is complete
     stream.on("message", async (message) => {
-      // save the complete assistant response to the conversation history
-      await storage.addMessageToConversation(req.params.id, { role: "assistant", content: fullText });
+      try {
+        // save the complete assistant response to the conversation history
+        await storage.addMessageToConversation(req.params.id, { role: "assistant", content: fullText });
+      } catch (err) {
+        // if saving fails, log it but don't block the response
+        // the user still sees the streamed text, we just lost saving it to history
+        console.error("Failed to save assistant message:", err);
+      }
 
       // send token usage stats and a "done" signal to the client
       const usage = {
@@ -101,11 +120,10 @@ app.post("/conversations/:id/chat", async (req, res) => {
 
 // Reset a specific conversation — clears all messages but keeps the conversation
 app.post("/conversations/:id/reset", async (req, res) => {
-  const conversation = await storage.getConversation(req.params.id);
-  if (!conversation) {
+  const success = await storage.resetConversation(req.params.id);
+  if (!success) {
     return res.status(404).json({ error: "Conversation not found" });
   }
-  conversation.messages = [];
   res.json({ status: "conversation reset" });
 });
 

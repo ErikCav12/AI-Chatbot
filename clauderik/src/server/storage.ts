@@ -14,7 +14,7 @@ interface Storage {
     getConversation(conversationId: string): Promise<Conversation | null>;
     getConversations(): Promise<Conversation[]>;
     addMessageToConversation(conversationId: string, message: Anthropic.MessageParam): Promise<Conversation | null>;
-
+    resetConversation(conversationId: string): Promise<boolean>;
 }
 
 export class InMemoryStorage implements Storage {
@@ -62,6 +62,15 @@ export class InMemoryStorage implements Storage {
         }
 
         return conversation
+    }
+
+    async resetConversation(conversationId: string): Promise<boolean> {
+        const conversation = this.conversations[conversationId];
+        if (!conversation) return false;
+
+        conversation.messages = [];
+        conversation.title = "New conversation";
+        return true;
     }
 }
 

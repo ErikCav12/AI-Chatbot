@@ -79,15 +79,23 @@ function App() {
     await fetchConversations();
   }
 
-  // switch to an existing conversation
+  // switch to an existing conversation and load its message history
   async function selectConversation(id: string) {
     setConversationId(id);
     setDrawerOpen(false);
-    // clear local messages, server will persist memory
-    // claude will continue to ahve context on the next message
-    setConversation([]);
     setTokenUsage(null);
 
+    // fetch the full conversation (with messages) from the server
+    const res = await fetch(`/conversations/${id}`);
+    const data = await res.json();
+
+    // convert server messages into the local Message format for display
+    setConversation(
+      data.messages.map((m: { role: "user" | "assistant"; content: string }) => ({
+        role: m.role,
+        content: typeof m.content === "string" ? m.content : "",
+      }))
+    );
   }
 
   async function retryLastMessage() {

@@ -181,4 +181,26 @@ export class SqliteStorage {
         // this ensures the returned object always reflects the current state
         return this.getConversation(conversationId);
     }
+
+    // deletes all messages for a conversation and resets its title
+    // returns true if the conversation existed, false otherwise
+    async resetConversation(conversationId: string): Promise<boolean> {
+        const row = this.db.prepare(
+            "SELECT id FROM conversations WHERE id = ?"
+        ).get(conversationId);
+
+        if (!row) return false;
+
+        // delete all messages belonging to this conversation
+        this.db.prepare(
+            "DELETE FROM messages WHERE conversation_id = ?"
+        ).run(conversationId);
+
+        // reset the title back to the default
+        this.db.prepare(
+            "UPDATE conversations SET title = 'New conversation' WHERE id = ?"
+        ).run(conversationId);
+
+        return true;
+    }
 }
