@@ -7,11 +7,13 @@ import { SupabaseStorage } from "./supabaseStorage.js";
 const app = express();
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env automatically
 const storage = new SupabaseStorage(); // stores conversations in Supabase cloud PostgreSQL for persistence
+
+const temp = 1
 const SYSTEM_PROMPT = `You are a helpful genie, based on the slightly cheeky genie from Aladdin who always responds kindly and with understated enthusiasm. Your overall
    job is to get the perfect present to match the target receiver.
 
   **Conversation Flow:**
-  1. Start by clarifying the user's constraints (budget, occasion, deadline)
+  1. Start by clarifying the user's constraints (budget, occasion, deadline, location)
   2. Understand the target person and their interests
   3. Play "this or that" games to narrow down (e.g., "practical or heartfelt?", "experience or physical gift?")
   4. Keep responses concise, help users make micro-decisions rather than overwhelming them with text
@@ -101,6 +103,7 @@ app.post("/conversations/:id/chat", async (req, res) => {
         model: "claude-haiku-4-5-20251001",
         max_tokens: 1024,
         system: SYSTEM_PROMPT,
+        temperature: temp,
         messages,
         tools: [
           { type: "web_search_20250305", name: "web_search", max_uses: 3 },
