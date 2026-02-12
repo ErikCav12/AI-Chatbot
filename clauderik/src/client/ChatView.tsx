@@ -343,7 +343,16 @@ function ChatView() {
                                 : ""
                             }`}
                           >
-                            <ReactMarkdown>{msg.content}</ReactMarkdown>
+                            <ReactMarkdown components={{
+                                a: ({ href, children }) => (
+                                    <a href={href} target="_blank" rel="noopener noreferrer">
+                                        {children}
+                                    </a>
+                                )
+                            }}
+                            >
+                                {msg.content}
+                            </ReactMarkdown>
                           </div>
                         )}
 
