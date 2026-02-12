@@ -7,6 +7,32 @@ import { SupabaseStorage } from "./supabaseStorage.js";
 const app = express();
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env automatically
 const storage = new SupabaseStorage(); // stores conversations in Supabase cloud PostgreSQL for persistence
+const SYSTEM_PROMPT = `You are a helpful genie, based on the slightly cheeky genie from Aladdin who always responds kindly and with understated enthusiasm. Your overall
+   job is to get the perfect present to match the target receiver.
+
+  **Conversation Flow:**
+  1. Start by clarifying the user's constraints (budget, occasion, deadline)
+  2. Understand the target person and their interests
+  3. Play "this or that" games to narrow down (e.g., "practical or heartfelt?", "experience or physical gift?")
+  4. Keep responses concise, help users make micro-decisions rather than overwhelming them with text
+  5. When you have enough information, search for actual products
+
+  **Using Search:**
+  - You have access to web search to find real gift products with purchase links
+  - Use the search_gift_products tool when you've narrowed down what kind of gift to look for
+  - Always include the user's budget as max_budget when they've stated one
+  - Present up to 3 product suggestions with:
+    - Product name (as a clickable link to the purchase page)
+    - Price
+    - Brief description of why it's a good match
+  - After presenting products, ask the user to rate each suggestion out of 10
+  - If ratings are low, ask what's missing and search again with refined criteria
+
+  **Important:**
+  - Never suggest products above the user's stated budget
+  - Always provide working purchase links
+  - If a search returns no good results, tell the user honestly and suggest adjusting criteria
+  - Your job is to point the user to the right link to their present`;
 
 app.use(express.json());
 
@@ -62,52 +88,66 @@ app.post("/conversations/:id/chat", async (req, res) => {
     res.setHeader("Connection", "keep-alive");
     res.flushHeaders();
 
-    // call the Claude API with the full conversation history for this chat
-    const stream = client.messages.stream({
-      model: "claude-haiku-4-5-20251001",
-      max_tokens: 1024,
-      system: "You are a helpful genie, based on the slightly cheeky genie from Aladdin who always responds kindly and with understated enthusiasm. Your overall job is to get the perfect present to match the target receiver. You start by clarifying the users constraints (i.e. money) as well as the occasion. Then move onto understanding who the target person is and their likes. This includes a game of this or that to help narrow down the gift idea, an example would be a practical gift or heartfelt. You always look to lighten the cognitive load on the user so that they make micro-decisions rather than just dumping loads of text in the chatbot. You should always respond concisely, focus on the task of finding the right gift. Whenever you suggest a gift, ask the user for a rating out of 10 so that can help guide you in the right direction. You can suggest up to 3 gifts at any one time when you feel that you have sufficiently narrowed it down. Your job is to point the user to the right link to their present",
-      messages: updatedConversation!.messages,
-    });
-
-    // accumulate the full response so we can save it to history when done
+    // messages array that grows if tool use requires follow-up requests
+    let messages = updatedConversation!.messages;
     let fullText = "";
+    let totalUsage = { input_tokens: 0, output_tokens: 0 };
+    let continueLoop = true;
 
-    // fired every time a new chunk of text arrives from Claude
-    stream.on("text", (textDelta) => {
-      fullText += textDelta;
-      // send each chunk to the client as an SSE event
-      res.write(`data: ${JSON.stringify({ text: textDelta })}\n\n`);
-    });
+    while (continueLoop) {
+      continueLoop = false;
 
-    // fired if something goes wrong mid-stream
-    stream.on("error", (error) => {
-      console.error("Stream error:", error);
-      if (!res.writableEnded) {
-        res.write(`data: ${JSON.stringify({ error: "Something went wrong, please try again" })}\n\n`);
-        res.end();
+      const stream = client.messages.stream({
+        model: "claude-haiku-4-5-20251001",
+        max_tokens: 1024,
+        system: SYSTEM_PROMPT,
+        messages,
+        tools: [
+          { type: "web_search_20250305", name: "web_search", max_uses: 3 },
+        ],
+      });
+
+      // wait for the full response while streaming text chunks to the client
+      const response = await new Promise<Anthropic.Message>((resolve, reject) => {
+        stream.on("text", (textDelta) => {
+          fullText += textDelta;
+          res.write(`data: ${JSON.stringify({ text: textDelta })}\n\n`);
+        });
+
+        stream.on("error", (error) => {
+          console.error("Stream error:", error);
+          if (!res.writableEnded) {
+            res.write(`data: ${JSON.stringify({ error: "Something went wrong" })}\n\n`);
+          }
+          reject(error);
+        });
+
+        stream.on("message", (message) => {
+          resolve(message);
+        });
+      });
+
+      // accumulate token usage across iterations
+      totalUsage.input_tokens += response.usage.input_tokens;
+      totalUsage.output_tokens += response.usage.output_tokens;
+
+      // web search may pause mid-turn — continue the loop to finish the response
+      if (response.stop_reason === "pause_turn") {
+        messages = [...messages, { role: "assistant" as const, content: response.content }];
+        continueLoop = true;
       }
-    });
+    }
 
-    // fired when the full response is complete
-    stream.on("message", async (message) => {
-      try {
-        // save the complete assistant response to the conversation history
-        await storage.addMessageToConversation(req.params.id, { role: "assistant", content: fullText });
-      } catch (err) {
-        // if saving fails, log it but don't block the response
-        // the user still sees the streamed text, we just lost saving it to history
-        console.error("Failed to save assistant message:", err);
-      }
+// save the complete assistant response to conversation history
+try {
+  await storage.addMessageToConversation(req.params.id, { role: "assistant", content: fullText });
+} catch (err) {
+  console.error("Failed to save assistant message:", err);
+}
 
-      // send token usage stats and a "done" signal to the client
-      const usage = {
-        input_tokens: message.usage.input_tokens,
-        output_tokens: message.usage.output_tokens,
-      };
-      res.write(`data: ${JSON.stringify({ done: true, usage })}\n\n`);
-      res.end();
-    });
+// send token usage stats and "done" signal to the client
+res.write(`data: ${JSON.stringify({ done: true, usage: totalUsage })}\n\n`);
+res.end();
 
   } catch (error) {
     console.error("API Call Failed:", error);

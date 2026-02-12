@@ -133,3 +133,14 @@ body {
   font-weight: 700;
   color: #d4a344;
 }
+
+.prose a {
+  color: #d4a344;
+  text-decoration: underline;
+  text-decoration-color: rgba(212, 163, 68, 0.5);
+  transition: opacity 0.2s;
+}
+
+.prose a:hover {
+  opacity: 0.8;
+}
