@@ -47,7 +47,7 @@ function App() {
   }
 
   return (
-    <div className="mx-auto max-w-[800px] min-h-screen flex flex-col px-6 py-6">
+    <div className="mx-auto max-w-[800px] h-screen flex flex-col px-6 py-6 overflow-hidden">
       {/* Header */}
       <header className="text-center animate-fade-in-down">
         <div className="flex items-center justify-center gap-4 relative">
@@ -104,8 +104,10 @@ function App() {
         </div>
       </header>
 
+      <div className="h-6" />
+
       {/* Child route renders here (ChatView) */}
-      <main className="flex-1">
+      <main className="flex-1 min-h-0">
         <Outlet context={{ fetchConversations }} />
       </main>
     </div>

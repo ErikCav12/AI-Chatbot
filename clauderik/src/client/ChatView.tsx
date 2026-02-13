@@ -1,13 +1,10 @@
-import { useState, useRef, useEffect } from "react";                          // CHANGED: added react imports                                                           
-import { useParams, useNavigate, useOutletContext } from "react-router";       // CHANGED: router hooks                                                                 
-                                                                                                                                                                        
-import ReactMarkdown from "react-markdown";                                                                                                                             
+import { useState, useRef, useEffect } from "react";
+import { useParams, useNavigate, useOutletContext } from "react-router";
 
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Card, CardContent } from "@/components/ui/card";
+import ReactMarkdown from "react-markdown";
 
 import lampIcon from "./assets/lamp.svg";
+import genieIcon from "./assets/genie.svg";
 
 type Message = {
   role: "user" | "assistant";
@@ -22,7 +19,6 @@ type TokenUsage = {
 };
 
 function ChatView() {
-    // CHANGED: derive conversationId from URL instead of useState
     const { chatId } = useParams<{ chatId: string }>();
     const conversationId = chatId ?? null;
     const navigate = useNavigate();
@@ -35,33 +31,30 @@ function ChatView() {
     const [tokenUsage, setTokenUsage] = useState<TokenUsage | null>(null);
     const readerRef = useRef<ReadableStreamDefaultReader | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
-    const justCreatedRef = useRef(false);                                        // CHANGED: race condition guard
-  
+    const justCreatedRef = useRef(false);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-    // auto-scroll to top when conversation updates (newest is first due to reverse)
+    // auto-scroll to bottom when conversation updates
     useEffect(() => {
       if (scrollRef.current) {
-        scrollRef.current.scrollTop = 0;
+        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
       }
     }, [conversation]);
 
-    // CHANGED: replaces selectConversation — loads conversation when URL changes
     useEffect(() => {
       if (justCreatedRef.current) {
         justCreatedRef.current = false;
-        return; // skip — we just created this conversation and are already streaming
+        return;
       }
       if (conversationId) {
         loadConversation(conversationId);
       } else {
-        // /new route — clear everything
         setConversation([]);
         setInput("");
         setTokenUsage(null);
       }
     }, [conversationId]);
 
-    // CHANGED: extracted from old selectConversation
     async function loadConversation(id: string) {
       setTokenUsage(null);
       const res = await fetch(`/conversations/${id}`);
@@ -81,9 +74,6 @@ function ChatView() {
       }
       setIsLoading(false);
     }
-
-    // CHANGED: removed createNewConversation (App handles that via navigate("/new"))
-    // CHANGED: removed selectConversation (useEffect on conversationId handles that)
 
     async function retryLastMessage() {
       const lastUserMsg = [...conversation].reverse().find((m) => m.role === "user");
@@ -108,10 +98,10 @@ function ChatView() {
         const res = await fetch(`/conversations/${chatId}/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
+          body: JSON.stringify({
             message,
-          temperature: isWildcard ? 1.0 : 0.7,
-        }),
+            temperature: isWildcard ? 1.0 : 0.7,
+          }),
         });
 
         if (!res.ok) {
@@ -207,14 +197,18 @@ function ChatView() {
       setInput("");
       setIsLoading(true);
 
-      // CHANGED: lazy creation — navigate to /chat/:id instead of just setting state
+      // reset textarea height
+      if (textareaRef.current) {
+        textareaRef.current.style.height = "auto";
+      }
+
       let activeId = conversationId;
       if (!activeId) {
         const res = await fetch("/conversations", { method: "POST" });
         const data = await res.json();
         activeId = data.id;
-        justCreatedRef.current = true;                                           // CHANGED: prevent useEffect reload
-        navigate(`/chat/${activeId}`, { replace: true });                        // CHANGED: update URL, replace /new
+        justCreatedRef.current = true;
+        navigate(`/chat/${activeId}`, { replace: true });
       }
 
       setConversation((prev) => [
@@ -227,208 +221,209 @@ function ChatView() {
       fetchConversations();
     }
 
-    async function handleSubmit(e: React.FormEvent): Promise<void> {
+    function handleSubmit(e: { preventDefault(): void }) {
       e.preventDefault();
       if (!input.trim()) return;
-      await sendMessage();
+      sendMessage();
     }
 
     function toggleWildcard() {
       setIsWildcard((prev) => !prev);
     }
 
-    // CHANGED: removed resetConversation (not used in current UI)
+    // auto-resize textarea
+    function handleTextareaChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+      setInput(e.target.value);
+      const el = e.target;
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 200) + "px";
+    }
 
     const lastMsg = conversation[conversation.length - 1];
     const isStreaming = isLoading && lastMsg?.role === "assistant" && lastMsg.content.length > 0;
     const isWaitingForFirstChunk = isLoading && lastMsg?.role === "assistant" && lastMsg.content === "";
+    const hasMessages = conversation.length > 0;
 
-    // CHANGED: returns fragment — no wrapper div, no header, no drawer (App handles those)
     return (
-      <>
+      <div className="flex flex-col h-full">
+        {/* Messages area */}
+        {hasMessages ? (
+          <div ref={scrollRef} className="flex-1 overflow-y-auto py-4">
+            <div className="space-y-6">
+              {conversation.map((msg, index) => {
+                const isLastAssistant =
+                  index === conversation.length - 1 && msg.role === "assistant";
+
+                return (
+                  <div key={index} className="flex gap-3 items-start">
+                    {/* Avatar */}
+                    <div className={`w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center mt-0.5 ${
+                      msg.role === "assistant"
+                        ? ""
+                        : "bg-white/10"
+                    }`}>
+                      {msg.role === "assistant" ? (
+                        <img src={genieIcon} alt="Genie" className="w-8 h-8 drop-shadow-[0_0_4px_#d4a344]" />
+                      ) : (
+                        <span className="text-xs font-medium text-white/70">You</span>
+                      )}
+                    </div>
+
+                    {/* Message content */}
+                    <div className="flex-1 min-w-0">
+                      <span className={`text-xs font-medium ${
+                        msg.role === "assistant"
+                          ? msg.error ? "text-red-400" : "text-[#d4a344]"
+                          : "text-white/50"
+                      }`}>
+                        {msg.role === "user" ? "You" : "Gift Genie"}
+                      </span>
+
+                      {isLastAssistant && isWaitingForFirstChunk && (
+                        <div className="flex gap-1.5 mt-2 items-center">
+                          <span className="typing-dot" />
+                          <span className="typing-dot" />
+                          <span className="typing-dot" />
+                        </div>
+                      )}
+
+                      {msg.content && (
+                        <div className={`prose mt-1 text-[lch(92%_0_0)] text-[15px] leading-relaxed ${
+                          isLastAssistant && isStreaming ? "typing-cursor" : ""
+                        }`}>
+                          <ReactMarkdown components={{
+                            a: ({ href, children }) => (
+                              <a href={href} target="_blank" rel="noopener noreferrer">
+                                {children}
+                              </a>
+                            )
+                          }}>
+                            {msg.content}
+                          </ReactMarkdown>
+                        </div>
+                      )}
+
+                      {msg.error && (
+                        <div className="mt-2 flex items-center gap-3">
+                          <span className="text-red-400 text-xs">
+                            Stream interrupted
+                          </span>
+                          <button
+                            onClick={retryLastMessage}
+                            className="text-xs text-red-400 hover:text-red-300 underline underline-offset-2 cursor-pointer"
+                          >
+                            Retry
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          /* Empty state — lamp centered */
+          <div className="flex-1 flex flex-col items-center justify-center gap-2">
+            <img
+              src={lampIcon}
+              alt="Magic Lamp"
+              className="w-[120px] h-[120px] drop-shadow-[0_0_12px_#d4a344] opacity-80"
+            />
+            <p className="text-white/30 text-sm">Ask the Genie for gift ideas</p>
+          </div>
+        )}
+
+        {/* Token usage */}
         {tokenUsage && (
-          <p className="text-xs text-white/30 mt-2 text-center">
-            Tokens: {tokenUsage.input_tokens} in / {tokenUsage.output_tokens} out / {tokenUsage.total} total
+          <p className="text-[11px] text-white/20 text-center py-1">
+            {tokenUsage.input_tokens} in / {tokenUsage.output_tokens} out / {tokenUsage.total} total
           </p>
         )}
 
-        <form onSubmit={handleSubmit} className="mb-2">
-          <Textarea
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                if (input.trim()) handleSubmit(e as unknown as React.FormEvent);
-              }
-            }}
-            placeholder="e.g., ...sh*t forgot my wife's birthday"
-            className="w-full bg-transparent border-0 border-b-2 border-white/20 rounded-none min-h-[calc(1.5em*3+1.2rem)] text-lg text-[lch(92%_0_0)]
-  placeholder:text-white/40 resize-none focus:border-b-[#d4a344] focus-visible:ring-0 transition-colors duration-300"
-          />
-
-          <div className="flex flex-col items-center my-8">
-            {isLoading ? (
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={cancelStream}
-                className="flex flex-col items-center gap-4 h-auto p-4 hover:bg-transparent cursor-pointer"
-              >
-                <img
-                  src={lampIcon}
-                  alt="Magic Lamp"
-                  className="w-[156px] h-[156px] drop-shadow-[0_0_8px_#d4a344] animate-rub-lamp"
-                />
-                <span className="text-red-400 text-2xl font-semibold">
-                  Stop
-                </span>
-              </Button>
-            ) : (
-              <Button
-                type="submit"
-                variant="ghost"
-                disabled={!input.trim()}
-                className="lamp-hover flex flex-col items-center gap-4 h-auto p-4 hover:bg-transparent disabled:opacity-100 cursor-pointer disabled:cursor-default"
-              >
-                <img
-                  src={lampIcon}
-                  alt="Magic Lamp"
-                  className="w-[156px] h-[156px] drop-shadow-[0_0_8px_#d4a344] transition-all duration-400"
-                />
-                <span className="text-[lch(70%_8_285)] text-2xl font-semibold opacity-90">
-                  Rub the Lamp
-                </span>
-              </Button>
-            )}
-            <div className="flex items-center gap-3 mt-6">
-              <span className={`text-xs font-bold tracking-widest uppercase transition-colors duration-300 ${
-                !isWildcard ? "text-white/50" : "text-white/20"
-              }`}>
-                OFF
-              </span>
-
+        {/* Input area — pinned to bottom */}
+        <div className="pb-4 pt-2">
+          <form onSubmit={handleSubmit} className="relative">
+            <div className="flex items-end gap-2 bg-white/5 border border-white/10 rounded-2xl px-4 py-3 focus-within:border-[#d4a344]/50 transition-colors duration-300">
+              {/* Wildcard dial — compact, inline */}
               <button
                 type="button"
                 onClick={toggleWildcard}
-                className="amp-dial group relative w-16 h-16 rounded-full cursor-pointer"
+                className="amp-dial relative w-9 h-9 rounded-full cursor-pointer flex-shrink-0 mb-0.5"
+                title={isWildcard ? "Wildcard: ON" : "Wildcard: OFF"}
               >
-                {/* outer ring */}
-                <div className={`absolute inset-0 rounded-full border-2 transition-all duration-500 ${
+                <div className={`absolute inset-0 rounded-full border-[1.5px] transition-all duration-500 ${
                   isWildcard
-                    ? "border-red-500 shadow-[0_0_12px_rgba(239,68,68,0.5)]"
-                    : "border-white/20"
+                    ? "border-red-500 shadow-[0_0_8px_rgba(239,68,68,0.4)]"
+                    : "border-white/15"
                 }`} />
-                {/* dial face */}
-                <div className={`absolute inset-1 rounded-full transition-all duration-500 ${
+                <div className={`absolute inset-[3px] rounded-full transition-all duration-500 ${
                   isWildcard
                     ? "bg-gradient-to-b from-red-900/80 to-red-950"
-                    : "bg-gradient-to-b from-white/10 to-white/5"
+                    : "bg-gradient-to-b from-white/8 to-white/3"
                 }`}>
-                  {/* notch indicator */}
-                  <div className={`amp-dial-notch absolute w-1 h-4 left-1/2 -translate-x-1/2 rounded-full transition-all duration-500 ${
+                  <div className={`amp-dial-notch absolute w-0.5 h-2.5 left-1/2 -translate-x-1/2 rounded-full transition-all duration-500 ${
                     isWildcard
-                      ? "top-1 bg-red-400 shadow-[0_0_6px_rgba(239,68,68,0.8)]"
-                      : "bottom-1 bg-white/30"
+                      ? "top-[3px] bg-red-400 shadow-[0_0_4px_rgba(239,68,68,0.8)]"
+                      : "bottom-[3px] bg-white/25"
                   }`} />
                 </div>
               </button>
 
-              <span className={`text-xs font-bold tracking-widest uppercase transition-colors duration-300 ${
-                isWildcard ? "text-red-400 amp-jacked-text" : "text-white/20"
-              }`}>
+              {/* Textarea */}
+              <textarea
+                ref={textareaRef}
+                value={input}
+                onChange={handleTextareaChange}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    if (input.trim()) handleSubmit(e);
+                  }
+                }}
+                placeholder="Ask the Genie..."
+                rows={1}
+                className="flex-1 bg-transparent text-[15px] text-[lch(92%_0_0)] placeholder:text-white/30 resize-none outline-none max-h-[200px] py-1 leading-relaxed"
+              />
+
+              {/* Send / Stop button — lamp icon */}
+              {isLoading ? (
+                <button
+                  type="button"
+                  onClick={cancelStream}
+                  className="flex-shrink-0 w-10 h-10 flex items-center justify-center cursor-pointer mb-0.5"
+                >
+                  <img
+                    src={lampIcon}
+                    alt="Stop"
+                    className="w-8 h-8 animate-rub-lamp"
+                  />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  disabled={!input.trim()}
+                  className="lamp-send flex-shrink-0 w-10 h-10 flex items-center justify-center disabled:opacity-30 disabled:cursor-default cursor-pointer mb-0.5"
+                >
+                  <img
+                    src={lampIcon}
+                    alt="Send"
+                    className="w-8 h-8 drop-shadow-[0_0_4px_#d4a344] transition-all duration-300"
+                  />
+                </button>
+              )}
+            </div>
+
+            {/* Wildcard label */}
+            {isWildcard && (
+              <span className="absolute -top-5 left-4 text-[10px] font-bold tracking-widest uppercase text-red-400 amp-jacked-text">
                 WILDCARD
               </span>
-            </div>
-          </div>
-        </form>
-
-        {conversation.length > 0 && (
-          <section className="pb-4">
-            <div ref={scrollRef} className="max-h-[60vh] overflow-y-auto">
-              <div className="space-y-4 pb-4">
-                {[...conversation].reverse().map((msg, index) => {
-                  const isLastAssistant =
-                    index === 0 && msg.role === "assistant";
-
-                  return (
-                    <Card
-                      key={index}
-                      className={`border-0 ${
-                        msg.role === "user"
-                          ? "bg-white/5"
-                          : msg.error
-                            ? "bg-red-500/10 border border-red-500/30"
-                            : "bg-[#d4a344]/10"
-                      }`}
-                    >
-                      <CardContent className="p-4">
-                        <strong
-                          className={
-                            msg.role === "assistant"
-                              ? msg.error
-                                ? "text-red-400"
-                                : "text-[#d4a344]"
-                              : ""
-                          }
-                        >
-                          {msg.role === "user" ? "You" : "Gift Genie"}:
-                        </strong>
-
-                        {isLastAssistant && isWaitingForFirstChunk && (
-                          <div className="flex gap-1.5 mt-2 items-center">
-                            <span className="typing-dot" />
-                            <span className="typing-dot" />
-                            <span className="typing-dot" />
-                          </div>
-                        )}
-
-                        {msg.content && (
-                          <div
-                            className={`prose mt-1 text-[lch(92%_0_0)] ${
-                              isLastAssistant && isStreaming
-                                ? "typing-cursor"
-                                : ""
-                            }`}
-                          >
-                            <ReactMarkdown components={{
-                                a: ({ href, children }) => (
-                                    <a href={href} target="_blank" rel="noopener noreferrer">
-                                        {children}
-                                    </a>
-                                )
-                            }}
-                            >
-                                {msg.content}
-                            </ReactMarkdown>
-                          </div>
-                        )}
-
-                        {msg.error && (
-                          <div className="mt-2 flex items-center gap-3">
-                            <span className="text-red-400 text-sm">
-                              Stream interrupted
-                            </span>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={retryLastMessage}
-                              className="text-xs border-red-400/50 text-red-400 hover:bg-red-400/10"
-                            >
-                              Retry
-                            </Button>
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-                  );
-                })}
-              </div>
-            </div>
-          </section>
-        )}
-      </>
+            )}
+          </form>
+        </div>
+      </div>
     );
   }
 
-  export default ChatView;
+export default ChatView;

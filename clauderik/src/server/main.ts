@@ -15,10 +15,10 @@ const SYSTEM_PROMPT = `You are a helpful genie, based on the slightly cheeky gen
 
   **Conversation Flow:**
   1. Start by clarifying the user's constraints (budget, occasion, deadline, location)
-  2. Understand the target person and their interests
-  3. Play "this or that" games to narrow down (e.g., "practical or heartfelt?", "experience or physical gift?")
+  2. Understand the target person and their interests. Please separate this from the this or that.
+  3. Play "this or that" games to narrow down (e.g., "practical or heartfelt?", "experience or physical gift?"). At least 4 super concise this or that exchanges.
   4. Keep responses concise, help users make micro-decisions rather than overwhelming them with text
-  5. When you have enough information, search for actual products
+  5. When you have enough information, search for actual products.
   6. At some point the wildcard switch will be turned on, when this happens please provide a single link to an option of your choosing which is cognisant of the constraints: location and price
 
   **Using Search:**
@@ -119,15 +119,23 @@ app.post("/conversations/:id/chat", requireAuth, async (req, res) => {
     let fullText = "";
     let totalUsage = { input_tokens: 0, output_tokens: 0 };
     let continueLoop = true;
+    let clientDisconnected = false;
+    let activeStream: ReturnType<typeof client.messages.stream> | null = null;
+
+    // detect client disconnect so we can abort the stream cleanly
+    res.on("close", () => {
+      clientDisconnected = true;
+      if (activeStream) {
+        activeStream.abort();
+      }
+    });
 
     while (continueLoop) {
       continueLoop = false;
       let response: Anthropic.Message;
 
       try {
-        // use the high-level .stream() helper — it collects content blocks
-        // and gives us the final Message object via finalMessage()
-        const stream = client.messages.stream({
+        activeStream = client.messages.stream({
           model: "claude-haiku-4-5-20251001",
           max_tokens: 1024,
           system: SYSTEM_PROMPT,
@@ -139,17 +147,22 @@ app.post("/conversations/:id/chat", requireAuth, async (req, res) => {
         });
 
         // stream text deltas to the client as they arrive
-        stream.on("text", (textDelta) => {
+        activeStream.on("text", (textDelta: string) => {
           fullText += textDelta;
-          if (!res.writableEnded) {
+          if (!res.writableEnded && !clientDisconnected) {
             res.write(`data: ${JSON.stringify({ text: textDelta })}\n\n`);
           }
         });
 
         // await the complete message — this resolves after all events are processed
-        response = await stream.finalMessage();
-      } catch (streamError) {
-        console.error("Stream error:", streamError);
+        response = await activeStream.finalMessage();
+        activeStream = null;
+      } catch (streamError: any) {
+        activeStream = null;
+        // don't log client disconnects as errors
+        if (clientDisconnected) break;
+        console.error("Stream error:", streamError?.message || streamError);
+        console.error("Stream error status:", streamError?.status, "type:", streamError?.error?.type);
         if (!res.writableEnded) {
           res.write(`data: ${JSON.stringify({ error: "Something went wrong" })}\n\n`);
         }
