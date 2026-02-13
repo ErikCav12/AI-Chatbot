@@ -2,7 +2,9 @@ import express from "express";
 import ViteExpress from "vite-express";                                                        
 import Anthropic from "@anthropic-ai/sdk";                                                                                                                              
 import "dotenv/config";                                                                                                                                                 
-import { SupabaseStorage } from "./supabaseStorage.js";                                                                                                                            
+import { SupabaseStorage } from "./supabaseStorage.js";
+import { auth } from "./auth.js";                                                                                                                                       
+import { toNodeHandler, fromNodeHeaders } from "better-auth/node";                                                                                                                         
 
 const app = express();
 const client = new Anthropic(); // reads ANTHROPIC_API_KEY from env automatically
@@ -36,25 +38,45 @@ const SYSTEM_PROMPT = `You are a helpful genie, based on the slightly cheeky gen
   - If a search returns no good results, tell the user honestly and suggest adjusting criteria
   - Your job is to point the user to the right link to their present`;
 
+app.all("/api/auth/*splat", toNodeHandler(auth));
 app.use(express.json());
 
+async function requireAuth(
+  req: express.Request,
+  res: express.Response,
+  next: express.NextFunction
+) {
+  const session = await auth.api.getSession({
+    headers: fromNodeHeaders(req.headers),
+  });
+  if (!session) {
+    res.status(401).json({ error: "Unauthorized" });
+    return;
+  }
+  (req as any).userId = session.user.id;
+  next();
+}
+
 // Create a new conversation — called when the user starts a fresh chat
-app.post("/conversations", async (req, res) => {
-  const convo = await storage.createConversation();
+app.post("/conversations", requireAuth, async (req, res) => {
+  const userId = (req as any).userId;
+  const convo = await storage.createConversation(userId);
   // only return metadata, not the full messages array
   res.json({ id: convo.id, title: convo.title, createdAt: convo.createdAt });
 });
 
 // List all conversations — used to populate the sidebar drawer
-app.get("/conversations", async (req, res) => {
-  const convos = await storage.getConversations();
+app.get("/conversations", requireAuth, async (req, res) => {
+  const userId = (req as any).userId;
+  const convos = await storage.getConversations(userId);
   // strip out messages to keep the response lightweight
   res.json(convos.map(c => ({ id: c.id, title: c.title, createdAt: c.createdAt })));
 });
 
 // Get a single conversation with its full message history
-app.get("/conversations/:id", async (req, res) => {
-  const conversation = await storage.getConversation(req.params.id);
+app.get("/conversations/:id", requireAuth, async (req, res) => {
+  const userId = (req as any).userId;
+  const conversation = await storage.getConversation(req.params.id as string, userId);
   if (!conversation) {
     return res.status(404).json({ error: "Conversation not found" });
   }
@@ -62,10 +84,11 @@ app.get("/conversations/:id", async (req, res) => {
 });
 
 // Send a message within a specific conversation and stream the AI response back
-app.post("/conversations/:id/chat", async (req, res) => {
+app.post("/conversations/:id/chat", requireAuth, async (req, res) => {
   try {
     // look up the conversation by ID from the URL parameter
-    const conversation = await storage.getConversation(req.params.id);
+    const userId = (req as any).userId;
+    const conversation = await storage.getConversation(req.params.id as string, userId);
     if (!conversation) {
       return res.status(404).json({ error: "Conversation not found" });
     }
@@ -78,11 +101,11 @@ app.post("/conversations/:id/chat", async (req, res) => {
 
     // save the user's message to the conversation history
     // this also handles auto-titling and the MAX_MESSAGES cap internally
-    await storage.addMessageToConversation(req.params.id, { role: "user", content: userMessage });
+    await storage.addMessageToConversation(req.params.id as string, { role: "user", content: userMessage });
 
     // re-fetch the conversation so we have the full history INCLUDING the message we just added
     // (the original `conversation` object was fetched before the insert)
-    const updatedConversation = await storage.getConversation(req.params.id);
+    const updatedConversation = await storage.getConversation(req.params.id as string, userId);
 
     // set up Server-Sent Events (SSE) so we can stream tokens back as they arrive
     res.setHeader("Content-Type", "text/event-stream");
@@ -143,7 +166,7 @@ app.post("/conversations/:id/chat", async (req, res) => {
 
 // save the complete assistant response to conversation history
 try {
-  await storage.addMessageToConversation(req.params.id, { role: "assistant", content: fullText });
+  await storage.addMessageToConversation(req.params.id as string, { role: "assistant", content: fullText });
 } catch (err) {
   console.error("Failed to save assistant message:", err);
 }
@@ -162,8 +185,9 @@ res.end();
 });
 
 // Reset a specific conversation — clears all messages but keeps the conversation
-app.post("/conversations/:id/reset", async (req, res) => {
-  const success = await storage.resetConversation(req.params.id);
+app.post("/conversations/:id/reset", requireAuth, async (req, res) => {
+  const userId = (req as any).userId;
+  const success = await storage.resetConversation(req.params.id as string, userId);
   if (!success) {
     return res.status(404).json({ error: "Conversation not found" });
   }

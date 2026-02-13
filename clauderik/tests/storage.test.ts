@@ -2,10 +2,11 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { InMemoryStorage, MAX_MESSAGES } from "../src/server/storage";
 import { SqliteStorage } from "../src/server/sqliteStorage";
 
+const TEST_USER = "test-user-123";
+
 // This is a test factory function — it takes a name and a function that creates a storage instance,
-// then runs all 8 tests against that storage. This lets us reuse the exact same tests
+// then runs all tests against that storage. This lets us reuse the exact same tests
 // for both InMemoryStorage and SqliteStorage without duplicating any test code.
-// When we add SupabaseStorage later, we just add another call to this function.
 function runStorageTests(
     name: string,
     createStorage: () => InMemoryStorage | SqliteStorage
@@ -22,7 +23,7 @@ function runStorageTests(
         // test that creating a conversation returns a valid object
         // with a UUID string, empty messages array, default title, and a timestamp
         it("createConversation returns a conversation with a UUID and empty messages", async () => {
-            const convo = await storage.createConversation();
+            const convo = await storage.createConversation(TEST_USER);
 
             expect(convo.id).toBeTruthy();
             expect(typeof convo.id).toBe("string");
@@ -35,8 +36,8 @@ function runStorageTests(
         // test that we can retrieve a conversation we just created
         // and all fields match the original
         it("getConversation returns the correct conversation", async () => {
-            const convo = await storage.createConversation();
-            const retrieved = await storage.getConversation(convo.id);
+            const convo = await storage.createConversation(TEST_USER);
+            const retrieved = await storage.getConversation(convo.id, TEST_USER);
 
             expect(retrieved).not.toBeNull();
             expect(retrieved!.id).toBe(convo.id);
@@ -47,25 +48,25 @@ function runStorageTests(
 
         // test that looking up a conversation that was never created returns null
         it("getConversation returns null for unknown ID", async () => {
-            const result = await storage.getConversation("nonexistent-id");
+            const result = await storage.getConversation("nonexistent-id", TEST_USER);
 
             expect(result).toBeNull();
         });
 
         // test that getConversations returns all conversations we've created
         it("getConversations returns all conversations", async () => {
-            await storage.createConversation();
-            await storage.createConversation();
-            await storage.createConversation();
+            await storage.createConversation(TEST_USER);
+            await storage.createConversation(TEST_USER);
+            await storage.createConversation(TEST_USER);
 
-            const all = await storage.getConversations();
+            const all = await storage.getConversations(TEST_USER);
             expect(all.length).toBe(3);
         });
 
         // test that adding a message stores it correctly
         // with the right role and content
         it("addMessageToConversation appends messages correctly", async () => {
-            const convo = await storage.createConversation();
+            const convo = await storage.createConversation(TEST_USER);
             const result = await storage.addMessageToConversation(convo.id, {
                 role: "user",
                 content: "Hello genie",
@@ -90,7 +91,7 @@ function runStorageTests(
         // test that the message history is capped at MAX_MESSAGES (100)
         // when we add more than the limit, the oldest messages should be dropped
         it("addMessageToConversation caps history at MAX_MESSAGES", async () => {
-            const convo = await storage.createConversation();
+            const convo = await storage.createConversation(TEST_USER);
 
             // add 110 messages (10 more than the limit)
             for (let i = 0; i < MAX_MESSAGES + 10; i++) {
@@ -100,7 +101,7 @@ function runStorageTests(
                 });
             }
 
-            const result = await storage.getConversation(convo.id);
+            const result = await storage.getConversation(convo.id, TEST_USER);
 
             // should be capped at exactly MAX_MESSAGES
             expect(result!.messages.length).toBe(MAX_MESSAGES);
@@ -112,7 +113,7 @@ function runStorageTests(
         // test that the conversation title is auto-set from the first user message
         // and doesn't change when subsequent messages are sent
         it("title is auto-generated from first user message", async () => {
-            const convo = await storage.createConversation();
+            const convo = await storage.createConversation(TEST_USER);
 
             // send a message longer than 50 chars to test truncation
             await storage.addMessageToConversation(convo.id, {
@@ -120,7 +121,7 @@ function runStorageTests(
                 content: "I need a birthday gift for my wife who loves gardening",
             });
 
-            const result = await storage.getConversation(convo.id);
+            const result = await storage.getConversation(convo.id, TEST_USER);
             // title should be the first 50 characters of the message
             expect(result!.title).toBe("I need a birthday gift for my wife who loves garde");
 
@@ -130,17 +131,37 @@ function runStorageTests(
                 content: "Something completely different",
             });
 
-            const afterSecond = await storage.getConversation(convo.id);
+            const afterSecond = await storage.getConversation(convo.id, TEST_USER);
             // title still matches the first message, not the second
             expect(afterSecond!.title).toBe("I need a birthday gift for my wife who loves garde");
+        });
+
+        // test that a conversation cannot be accessed by the wrong user
+        it("getConversation returns null for wrong user", async () => {
+            const convo = await storage.createConversation(TEST_USER);
+            const result = await storage.getConversation(convo.id, "different-user");
+            expect(result).toBeNull();
+        });
+
+        // test that getConversations only returns conversations belonging to that user
+        it("getConversations only returns conversations for that user", async () => {
+            await storage.createConversation(TEST_USER);
+            await storage.createConversation(TEST_USER);
+            await storage.createConversation("other-user");
+
+            const mine = await storage.getConversations(TEST_USER);
+            expect(mine.length).toBe(2);
+
+            const theirs = await storage.getConversations("other-user");
+            expect(theirs.length).toBe(1);
         });
     });
 }
 
-// run all 8 tests against InMemoryStorage (original in-memory implementation)
+// run all tests against InMemoryStorage (original in-memory implementation)
 runStorageTests("InMemoryStorage", () => new InMemoryStorage());
 
-// run the same 8 tests against SqliteStorage using ":memory:" mode
+// run the same tests against SqliteStorage using ":memory:" mode
 // ":memory:" creates a temporary in-memory SQLite database that disappears after each test
 // this avoids creating actual files on disk during testing
 runStorageTests("SqliteStorage", () => new SqliteStorage(":memory:"));

@@ -26,7 +26,8 @@ export class SqliteStorage {
             CREATE TABLE IF NOT EXISTS conversations (
                 id TEXT PRIMARY KEY,
                 title TEXT NOT NULL,
-                created_at INTEGER NOT NULL
+                created_at INTEGER NOT NULL,
+                user_id TEXT NOT NULL
             )
         `);
 
@@ -46,7 +47,7 @@ export class SqliteStorage {
 
     // creates a new conversation with a unique ID and default title
     // returns the conversation object with an empty messages array
-    async createConversation(): Promise<Conversation> {
+    async createConversation(userId: string): Promise<Conversation> {
         // generate a unique ID for the new conversation (same as InMemoryStorage)
         const id = crypto.randomUUID();
         const createdAt = Date.now();
@@ -54,8 +55,8 @@ export class SqliteStorage {
 
         // insert a new row into the conversations table
         this.db.prepare(
-            "INSERT INTO conversations (id, title, created_at) VALUES (?, ?, ?)"
-        ).run(id, title, createdAt);
+            "INSERT INTO conversations (id, title, created_at, user_id) VALUES (?, ?, ?, ?)"
+        ).run(id, title, createdAt, userId);
 
         // return the conversation object in the same shape as the interface expects
         return {
@@ -68,11 +69,11 @@ export class SqliteStorage {
 
     // looks up a conversation by its ID
     // returns the full conversation with all its messages, or null if not found
-    async getConversation(conversationId: string): Promise<Conversation | null> {
+    async getConversation(conversationId: string, userId: string): Promise<Conversation | null> {
         // try to find the conversation row in the database
         const row = this.db.prepare(
-            "SELECT * FROM conversations WHERE id = ?"
-        ).get(conversationId) as { id: string; title: string; created_at: number } | undefined;
+            "SELECT * FROM conversations WHERE id = ? AND user_id = ?"
+        ).get(conversationId, userId) as { id: string; title: string; created_at: number; user_id: string } | undefined;
 
         // if no row was found, the conversation doesn't exist
         if (!row) return null;
@@ -101,17 +102,17 @@ export class SqliteStorage {
 
     // returns all conversations with their messages
     // used to populate the sidebar list in the UI
-    async getConversations(): Promise<Conversation[]> {
-        // fetch all conversation rows from the database
+    async getConversations(userId: string): Promise<Conversation[]> {
+        // fetch conversation rows from the database filtered by user
         const rows = this.db.prepare(
-            "SELECT * FROM conversations"
-        ).all() as { id: string; title: string; created_at: number }[];
+            "SELECT * FROM conversations WHERE user_id = ?"
+        ).all(userId) as { id: string; title: string; created_at: number; user_id: string }[];
 
         // for each conversation, fetch its messages and build the full object
         // we reuse getConversation() to avoid duplicating the message-fetching logic
         const conversations: Conversation[] = [];
         for (const row of rows) {
-            const convo = await this.getConversation(row.id);
+            const convo = await this.getConversation(row.id, userId);
             // getConversation can return null, but since we just got the row
             // from the database, it should always exist — this is just a safety check
             if (convo) conversations.push(convo);
@@ -129,8 +130,8 @@ export class SqliteStorage {
     ): Promise<Conversation | null> {
         // first check if the conversation exists
         const row = this.db.prepare(
-            "SELECT id, title FROM conversations WHERE id = ?"
-        ).get(conversationId) as { id: string; title: string } | undefined;
+            "SELECT id, title, user_id FROM conversations WHERE id = ?"
+        ).get(conversationId) as { id: string; title: string; user_id: string } | undefined;
 
         // if the conversation doesn't exist, return null (route handler will send 404)
         if (!row) return null;
@@ -179,15 +180,15 @@ export class SqliteStorage {
 
         // return the full updated conversation by re-fetching it from the database
         // this ensures the returned object always reflects the current state
-        return this.getConversation(conversationId);
+        return this.getConversation(conversationId, row.user_id);
     }
 
     // deletes all messages for a conversation and resets its title
     // returns true if the conversation existed, false otherwise
-    async resetConversation(conversationId: string): Promise<boolean> {
+    async resetConversation(conversationId: string, userId: string): Promise<boolean> {
         const row = this.db.prepare(
-            "SELECT id FROM conversations WHERE id = ?"
-        ).get(conversationId);
+            "SELECT id FROM conversations WHERE id = ? AND user_id = ?"
+        ).get(conversationId, userId);
 
         if (!row) return false;
 

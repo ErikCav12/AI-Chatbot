@@ -10,17 +10,18 @@ export interface Conversation {
 }
 
 interface Storage {
-    createConversation(): Promise<Conversation>
-    getConversation(conversationId: string): Promise<Conversation | null>;
-    getConversations(): Promise<Conversation[]>;
+    createConversation(userId: string): Promise<Conversation>;
+    getConversation(conversationId: string, userId: string): Promise<Conversation | null>;
+    getConversations(userId: string): Promise<Conversation[]>;
     addMessageToConversation(conversationId: string, message: Anthropic.MessageParam): Promise<Conversation | null>;
-    resetConversation(conversationId: string): Promise<boolean>;
+    resetConversation(conversationId: string, userId: string): Promise<boolean>;
 }
 
 export class InMemoryStorage implements Storage {
     private conversations: Record<string, Conversation> = {};
+    private conversationOwners: Record<string, string> = {};
 
-    async createConversation(): Promise<Conversation> {
+    async createConversation(userId: string): Promise<Conversation> {
         const id = crypto.randomUUID();
 
         const conversation: Conversation = {
@@ -30,19 +31,24 @@ export class InMemoryStorage implements Storage {
             title: "New conversation",
         };
 
-        this.conversations[id] = conversation
+        this.conversations[id] = conversation;
+        this.conversationOwners[id] = userId;
 
-        return conversation
+        return conversation;
     }
 
-    async getConversation(conversationId: string): Promise<Conversation | null> {
+    async getConversation(conversationId: string, userId: string): Promise<Conversation | null> {
         const conversation = this.conversations[conversationId];
-        
-        return conversation ?? null // nullish operator returns left if not undefined then null is undefined
+        if (!conversation) return null;
+        if (this.conversationOwners[conversationId] !== userId) return null;
+
+        return conversation;
     }
 
-    async getConversations(): Promise<Conversation[]> {
-        return Object.values(this.conversations);
+    async getConversations(userId: string): Promise<Conversation[]> {
+        return Object.values(this.conversations).filter(
+            (c) => this.conversationOwners[c.id] === userId
+        );
     }
 
     async addMessageToConversation(conversationId: string, message: Anthropic.MessageParam): Promise<Conversation | null> {
@@ -54,19 +60,20 @@ export class InMemoryStorage implements Storage {
         if (message.role === "user" && conversation.title === "New conversation") {
             const content = typeof message.content === "string"
             ? message.content: "";
-            conversation.title = content.slice (0,50)
+            conversation.title = content.slice(0, 50);
         }
 
         if (conversation.messages.length > MAX_MESSAGES) {
-            conversation.messages = conversation.messages.slice(-MAX_MESSAGES)
+            conversation.messages = conversation.messages.slice(-MAX_MESSAGES);
         }
 
-        return conversation
+        return conversation;
     }
 
-    async resetConversation(conversationId: string): Promise<boolean> {
+    async resetConversation(conversationId: string, userId: string): Promise<boolean> {
         const conversation = this.conversations[conversationId];
         if (!conversation) return false;
+        if (this.conversationOwners[conversationId] !== userId) return false;
 
         conversation.messages = [];
         conversation.title = "New conversation";
