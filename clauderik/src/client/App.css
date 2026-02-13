@@ -98,6 +98,24 @@ body {
 .typing-dot:nth-child(2) { animation-delay: 0.2s; }
 .typing-dot:nth-child(3) { animation-delay: 0.4s; }
 
+/* Amplifier dial */
+.amp-dial:hover > div:first-child {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.amp-dial:active > div:nth-child(2) {
+  transform: scale(0.95);
+}
+
+@keyframes jackedPulse {
+  0%, 100% { text-shadow: 0 0 4px rgba(239, 68, 68, 0.4); }
+  50% { text-shadow: 0 0 12px rgba(239, 68, 68, 0.8), 0 0 24px rgba(239, 68, 68, 0.3); }
+}
+
+.amp-jacked-text {
+  animation: jackedPulse 2s ease-in-out infinite;
+}
+
 /* Markdown output styling */
 .prose p {
   margin-bottom: 0.25em;

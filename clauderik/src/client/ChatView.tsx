@@ -27,6 +27,7 @@ function ChatView() {
     const conversationId = chatId ?? null;
     const navigate = useNavigate();
     const { fetchConversations } = useOutletContext<{ fetchConversations: () => Promise<void> }>();
+    const [isWildcard, setIsWildcard] = useState(false);
 
     const [input, setInput] = useState("");
     const [conversation, setConversation] = useState<Message[]>([]);
@@ -35,6 +36,7 @@ function ChatView() {
     const readerRef = useRef<ReadableStreamDefaultReader | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
     const justCreatedRef = useRef(false);                                        // CHANGED: race condition guard
+  
 
     // auto-scroll to top when conversation updates (newest is first due to reverse)
     useEffect(() => {
@@ -106,7 +108,10 @@ function ChatView() {
         const res = await fetch(`/conversations/${chatId}/chat`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ message }),
+          body: JSON.stringify({ 
+            message,
+          temperature: isWildcard ? 1.0 : 0.7,
+        }),
         });
 
         if (!res.ok) {
@@ -228,6 +233,10 @@ function ChatView() {
       await sendMessage();
     }
 
+    function toggleWildcard() {
+      setIsWildcard((prev) => !prev);
+    }
+
     // CHANGED: removed resetConversation (not used in current UI)
 
     const lastMsg = conversation[conversation.length - 1];
@@ -292,6 +301,45 @@ function ChatView() {
                 </span>
               </Button>
             )}
+            <div className="flex items-center gap-3 mt-6">
+              <span className={`text-xs font-bold tracking-widest uppercase transition-colors duration-300 ${
+                !isWildcard ? "text-white/50" : "text-white/20"
+              }`}>
+                OFF
+              </span>
+
+              <button
+                type="button"
+                onClick={toggleWildcard}
+                className="amp-dial group relative w-16 h-16 rounded-full cursor-pointer"
+              >
+                {/* outer ring */}
+                <div className={`absolute inset-0 rounded-full border-2 transition-all duration-500 ${
+                  isWildcard
+                    ? "border-red-500 shadow-[0_0_12px_rgba(239,68,68,0.5)]"
+                    : "border-white/20"
+                }`} />
+                {/* dial face */}
+                <div className={`absolute inset-1 rounded-full transition-all duration-500 ${
+                  isWildcard
+                    ? "bg-gradient-to-b from-red-900/80 to-red-950"
+                    : "bg-gradient-to-b from-white/10 to-white/5"
+                }`}>
+                  {/* notch indicator */}
+                  <div className={`amp-dial-notch absolute w-1 h-4 left-1/2 -translate-x-1/2 rounded-full transition-all duration-500 ${
+                    isWildcard
+                      ? "top-1 bg-red-400 shadow-[0_0_6px_rgba(239,68,68,0.8)]"
+                      : "bottom-1 bg-white/30"
+                  }`} />
+                </div>
+              </button>
+
+              <span className={`text-xs font-bold tracking-widest uppercase transition-colors duration-300 ${
+                isWildcard ? "text-red-400 amp-jacked-text" : "text-white/20"
+              }`}>
+                WILDCARD
+              </span>
+            </div>
           </div>
         </form>
 
