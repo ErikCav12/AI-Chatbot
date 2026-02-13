@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerTrigger } from "@/components/ui/drawer";
 import { Separator } from "@/components/ui/separator";
 import { Menu } from "lucide-react";
+import { authClient } from "./lib/auth";
+import { LogOut } from "lucide-react";
 
 import genieIcon from "./assets/genie.svg";
 
@@ -24,6 +26,7 @@ function App() {
   // fetch all conversations from the server to populate the sidebar
   async function fetchConversations() {
     const res = await fetch("/conversations");
+    if (!res.ok) return;
     const data = await res.json();
     setConversationList(data);
   }
@@ -36,6 +39,11 @@ function App() {
   function selectConversation(id: string) {
     navigate(`/chat/${id}`);
     setDrawerOpen(false);
+  }
+
+  async function handleLogout() {
+    await authClient.signOut();
+    navigate("/");
   }
 
   return (
@@ -80,6 +88,10 @@ function App() {
               </div>
             </DrawerContent>
           </Drawer>
+
+          <Button variant="ghost" size="sm" onClick={handleLogout} className="absolute right-0 cursor-pointer text-white/50 hover:text-white">
+          <LogOut className="w-5 h-5" />
+          </Button>
 
           <img
             src={genieIcon}

@@ -30,17 +30,17 @@ export class SupabaseStorage {
 
     // creates a new conversation with a unique ID and default title
     // returns the conversation object with an empty messages array
-    async createConversation(): Promise<Conversation> {
+    async createConversation(userId: string): Promise<Conversation> {
         // generate a unique ID and timestamp on our side (same as other implementations)
         const id = crypto.randomUUID();
         const createdAt = Date.now();
         const title = "New conversation";
 
         // insert a new row into the conversations table in Supabase
-        // .select().single() tells Supabase to return the inserted row back to us
+        // include user_id if provided so conversations are linked to the authenticated user
         const { error } = await this.supabase
             .from("conversations")
-            .insert({ id, title, created_at: createdAt });
+            .insert({ id, title, created_at: createdAt, user_id: userId });
 
         // if the insert failed, throw an error so the route handler can catch it
         if (error) throw new Error(`Failed to create conversation: ${error.message}`);
@@ -56,13 +56,14 @@ export class SupabaseStorage {
 
     // looks up a conversation by its ID
     // returns the full conversation with all its messages, or null if not found
-    async getConversation(conversationId: string): Promise<Conversation | null> {
+    async getConversation(conversationId: string, userId: string): Promise<Conversation | null> {
         // query the conversations table for a row matching this ID
         // .single() tells Supabase we expect exactly one row (or none)
         const { data: row, error } = await this.supabase
             .from("conversations")
             .select("*")
             .eq("id", conversationId)
+            .eq("user_id", userId)
             .single();
 
         // if no row was found, the conversation doesn't exist
@@ -98,11 +99,12 @@ export class SupabaseStorage {
 
     // returns all conversations with their messages
     // used to populate the sidebar list in the UI
-    async getConversations(): Promise<Conversation[]> {
-        // fetch all conversation rows from Supabase
+    async getConversations(userId: string): Promise<Conversation[]> {
+        // fetch conversation rows from Supabase, filtered by user if provided
         const { data: rows, error } = await this.supabase
-            .from("conversations")
-            .select("*");
+        .from("conversations")
+        .select("*")
+        .eq("user_id", userId);
 
         // if the query failed, throw an error
         if (error) throw new Error(`Failed to fetch conversations: ${error.message}`);
@@ -111,7 +113,7 @@ export class SupabaseStorage {
         // we reuse getConversation() to avoid duplicating the message-fetching logic
         const conversations: Conversation[] = [];
         for (const row of rows || []) {
-            const convo = await this.getConversation(row.id);
+            const convo = await this.getConversation(row.id, userId);
             // safety check — should always exist since we just got the row
             if (convo) conversations.push(convo);
         }
@@ -129,7 +131,7 @@ export class SupabaseStorage {
         // first check if the conversation exists
         const { data: row, error: findError } = await this.supabase
             .from("conversations")
-            .select("id, title")
+            .select("id, title, user_id")
             .eq("id", conversationId)
             .single();
 
@@ -199,17 +201,18 @@ export class SupabaseStorage {
 
         // return the full updated conversation by re-fetching it from Supabase
         // this ensures the returned object always reflects the current state
-        return this.getConversation(conversationId);
+        return this.getConversation(conversationId, row.user_id);
     }
 
     // deletes all messages for a conversation and resets its title
     // returns true if the conversation existed, false otherwise
-    async resetConversation(conversationId: string): Promise<boolean> {
+    async resetConversation(conversationId: string, userId: string): Promise<boolean> {
         // check if the conversation exists
         const { data: row, error } = await this.supabase
             .from("conversations")
             .select("id")
             .eq("id", conversationId)
+            .eq("user_id", userId)
             .single();
 
         // if the conversation doesn't exist, return false
