@@ -206,7 +206,8 @@ app.post("/conversations/:id/reset", requireAuth, async (req, res) => {
   res.json({ status: "conversation reset" });
 });
 
-// start the server with Vite dev middleware for hot-reloading the frontend
-ViteExpress.listen(app, 3000, () =>
-  console.log("Server is listening on port 3000..."),
+// start the server — use PORT from environment (Railway sets this) or fallback to 3000 for local dev
+const port = parseInt(process.env.PORT || "3000", 10);
+ViteExpress.listen(app, port, () =>
+  console.log(`Server is listening on port ${port}...`),
 );
