@@ -1,4 +1,7 @@
-import express from "express";                                                                                                                                          
+import dns from "node:dns";
+dns.setDefaultResultOrder("ipv4first");
+
+import express from "express";
 import ViteExpress from "vite-express";                                                        
 import Anthropic from "@anthropic-ai/sdk";                                                                                                                              
 import "dotenv/config";                                                                                                                                                 
