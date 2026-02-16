@@ -1,7 +1,11 @@
 import { betterAuth } from "better-auth";                                                                                                                               
 import pg from "pg";                                                                                                                                                  
-import "dotenv/config";                                                                                                                                                 
-                                                                                                                                                                          
+import "dotenv/config";
+
+// temporary debug — remove after fixing
+const _db = process.env.DATABASE_URL || "";
+console.log("DB_URL check:", _db.replace(/\/\/(.+?):(.+?)@/, (_, u, p) => `//${u}:${"*".repeat(p.length)}@`));
+
   export const auth = betterAuth({
     database: new pg.Pool({
       connectionString: process.env.DATABASE_URL,
