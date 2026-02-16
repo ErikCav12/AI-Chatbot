@@ -2,9 +2,8 @@ import { betterAuth } from "better-auth";
 import pg from "pg";
 import "dotenv/config";
 
-// Parse DATABASE_URL into individual params to avoid URL-parsing issues
+// Parse DATABASE_URL into individual params for reliable connections
 const dbUrl = new URL(process.env.DATABASE_URL || "");
-console.log("DB connection:", dbUrl.hostname, "port:", dbUrl.port, "user:", dbUrl.username, "db:", dbUrl.pathname.slice(1), "pw length:", dbUrl.password.length);
 
   export const auth = betterAuth({
     database: new pg.Pool({

@@ -4,9 +4,9 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "nodemon -w src/server -x tsx src/server/main.ts",
-    "start": "NODE_ENV=production tsx src/server/main.ts",
-    "build": "vite build"
+    "dev": "bun --hot src/server/main.ts",
+    "start": "bun run src/server/main.ts",
+    "build": "bun run vite build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
