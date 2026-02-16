@@ -1,16 +1,18 @@
-import { betterAuth } from "better-auth";                                                                                                                               
-import pg from "pg";                                                                                                                                                  
+import { betterAuth } from "better-auth";
+import pg from "pg";
 import "dotenv/config";
 
-// temporary debug — remove after fixing
-const _db = process.env.DATABASE_URL || "";
-const _pw = _db.match(/:\/\/.+?:(.+?)@/)?.[1] || "";
-console.log("DB_URL check:", _db.replace(/\/\/(.+?):(.+?)@/, (_, u, p) => `//${u}:${"*".repeat(p.length)}@`));
-console.log("Password length:", _pw.length, "| first char:", _pw[0], "| last char:", _pw[_pw.length - 1]);
+// Parse DATABASE_URL into individual params to avoid URL-parsing issues
+const dbUrl = new URL(process.env.DATABASE_URL || "");
+console.log("DB connection:", dbUrl.hostname, "port:", dbUrl.port, "user:", dbUrl.username, "db:", dbUrl.pathname.slice(1), "pw length:", dbUrl.password.length);
 
   export const auth = betterAuth({
     database: new pg.Pool({
-      connectionString: process.env.DATABASE_URL,
+      host: dbUrl.hostname,
+      port: Number(dbUrl.port) || 5432,
+      user: dbUrl.username,
+      password: decodeURIComponent(dbUrl.password),
+      database: dbUrl.pathname.slice(1),
       ssl: { rejectUnauthorized: false },
     }),
     emailAndPassword: {
