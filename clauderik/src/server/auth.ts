@@ -1,12 +1,11 @@
 import { betterAuth } from "better-auth";
-import pg from "pg";
 import "dotenv/config";
 
   export const auth = betterAuth({
-    database: new pg.Pool({
+    database: {
       connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false },
-    }),
+      type: "postgres",
+    },
     emailAndPassword: {
       enabled: true,
     },
